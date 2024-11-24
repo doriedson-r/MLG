@@ -1,0 +1,92 @@
+---
+title: "An"
+author: "Doriedson"
+date: "09-11-2024"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r}
+require(ggplot2)
+source('arquivo1.R')
+```
+
+
+- calorias (kcal)
+
+```{r}
+dados = read.csv(Fonte)
+
+attach(dados)
+
+dsel = cbind(dados[, c(1:6)], dados$dessert)
+
+colnames(dsel)
+
+colnames(dsel) <- c("titulo", "nota", "calorias", "proteina", "gordura", "sodio", "sobremesa")
+
+dsel <- na.omit(dsel)
+
+attach(dsel)
+
+head(dsel); dim(dsel)
+
+```
+
+```{r}
+#plot(gordura)
+
+#boxplot(nota~sobremesa, col='navyblue')
+
+quantile(dsel$calorias, seq(0, 1, .01))
+
+```
+
+Observando o percentil 99 tem-se que 99% dos valores são menores ou iguais a 3257 kcal. Tomarei como limite das observações de caloria, pois é improvável/inviável que receitas ultrapassem de maneira tão acentuada esse valor; receitas com milhões de kcal são claramente erros nessa base de dados.
+
+```{r}
+dsel <- subset(dsel, dsel$calorias <= quantile(dsel$calorias, .99)[[1]])
+
+ggplot(dsel, aes(x=calorias)) + geom_histogram(binwidth = 200)
+
+```
+
+```{r}
+# Assumindo que 'var1' é uma variável numérica que pode ser interpretada como tempo
+
+g1 = ggplot(dsel, aes(y = sodio, x = seq(1:15706), color = sobremesa)) +
+  geom_line() +
+  #theme_dark() +
+  labs(x = "Var1", y = "Resposta",
+       title = "Evolução da Resposta em Relação a Var1")
+
+g1 + scale_color_manual(breaks=c(0:1), palette = "YlGn")#values=c("red", "green"))
+
+#g1 + scale_fill_brewer(palette = "YlGn")
+
+```
+
+
+
+```{r}
+glm(sobremesa~calorias+proteina+gordura+sodio, family = binomial())
+```
+
+
+## Referências
+
+https://rpubs.com/mpfoley73/527573
+
+https://www.kaggle.com/code/rtatman/regression-challenge-day-1
+
+https://www.kaggle.com/code/rtatman/datasets-for-regression-analysis#Poisson-regression-(predicting-a-count-value)
+
+https://www.kaggle.com/datasets/hugodarwood/epirecipes?resource=download
+
+

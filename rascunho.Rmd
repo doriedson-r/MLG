@@ -66,7 +66,9 @@ g1 = ggplot(dsel, aes(y = sodio, x = seq(1:15706), color = sobremesa)) +
   labs(x = "Var1", y = "Resposta",
        title = "Evolução da Resposta em Relação a Var1")
 
-g1 + scale_color_manual(breaks=c(0:1), palette = "YlGn")#values=c("red", "green"))
+g1 
+
+#g1 + scale_color_manual(breaks=c(0:1), palette = "YlGn")#values=c("red", "green"))
 
 #g1 + scale_fill_brewer(palette = "YlGn")
 

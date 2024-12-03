@@ -8,29 +8,33 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-
+knitr::opts_chunk$set(echo = FALSE)
 ```
 
-```{r}
+```{r include=FALSE}
 require(ggplot2)
 source('arquivo1.R')
+
 ```
 
+## Os dados
 
-- calorias (kcal)
+Trata-se de um conjunto extenso, com mais de 20 mil observações e 680 variáveis, sobre receitas culinárias do site _Epicurious_. Houve uma filtragem inicial no conjunto, restaram apenas 6 variáveis explicativas, as consideradas mais importantes: nota, a quantidade de calorias, de proteína, de gordura e de sódio. Há também o nome da receita e a variável resposta, que no caso é binária: trata-se de uma sobremesa?
+
+Em seguida, foi feita a exclusão de linhas que possuíam valores faltantes. Por fim, houve a retirada de valores absurdos (descrita mais detalhadamente abaixo). O conjunto final possui 15706 observações e 7 variáveis.
+
+Obs.: a variável calorias está na unidade 'kcal'.
 
 ```{r}
 dados = read.csv(Fonte)
 
-attach(dados)
+#attach(dados)
 
 dsel = cbind(dados[, c(1:6)], dados$dessert)
 
 colnames(dsel)
-
-colnames(dsel) <- c("titulo", "nota", "calorias", "proteina", "gordura", "sodio", "sobremesa")
-
+colnames(dsel) <- c("titulo", "nota", "calorias", "proteina",
+                    "gordura", "sodio", "sobremesa")
 dsel <- na.omit(dsel)
 
 attach(dsel)
@@ -53,12 +57,40 @@ Observando o percentil 99 tem-se que 99% dos valores são menores ou iguais a 32
 ```{r}
 dsel <- subset(dsel, dsel$calorias <= quantile(dsel$calorias, .99)[[1]])
 
+set.seed(2024)
+dsel = dsel[sample(c(1:15706), 200),]
+
 ggplot(dsel, aes(x=calorias)) + geom_histogram(binwidth = 200)
 
 ```
 
 ```{r}
+modelo = glm(sobremesa~calorias+proteina+gordura+sodio, family = binomial(),
+             data = dsel)
+
+summary(modelo)
+
+#plot(modelo$residuals)
+
+hnp::hnp(modelo, print.on = T)
+
+```
+
+
+```{r}
 # Assumindo que 'var1' é uma variável numérica que pode ser interpretada como tempo
+
+ggplot(dsel,
+       aes(x = calorias, y = sobremesa))+#, color = Sex, linetype = factor(Pclass))) +
+  geom_jitter(aes(y = sobremesa), height = 0.02, alpha = 0.3) +
+  geom_line(data = predict_data, aes(y = predicted_prob), size = 1) +
+  labs(title = "Curvas de Probabilidade Preditiva de Sobrevivência",
+       x = "Idade",
+       y = "Probabilidade de Sobrevivência",
+       color = "Sexo",
+       linetype = "Classe (Pclass)") +
+  scale_color_manual(values = c("blue", "red")) +
+  theme_minimal()
 
 g1 = ggplot(dsel, aes(y = sodio, x = seq(1:15706), color = sobremesa)) +
   geom_line() +

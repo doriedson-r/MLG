@@ -13,13 +13,16 @@ knitr::opts_chunk$set(echo = FALSE)
 
 ```{r include=FALSE}
 require(ggplot2)
+require(dplyr)
+require(patchwork)
+
 source('arquivo1.R')
 
 ```
 
 ## Os dados
 
-Trata-se de um conjunto extenso, com mais de 20 mil observações e 680 variáveis, sobre receitas culinárias do site _Epicurious_. Houve uma filtragem inicial no conjunto, restaram apenas 6 variáveis explicativas, as consideradas mais importantes: nota, a quantidade de calorias, de proteína, de gordura e de sódio. Há também o nome da receita e a variável resposta, que no caso é binária: trata-se de uma sobremesa?
+Trata-se de um conjunto extenso, com mais de 20 mil observações e 680 variáveis, sobre receitas culinárias do site _Epicurious_. Houve uma filtragem inicial no conjunto, restaram apenas 6 variáveis explicativas, as consideradas mais importantes: nota, a quantidade de calorias, de proteína, de gordura e de sódio. Há também o nome da receita e a variável resposta, que no caso é binária: trata-se de uma sobremesa? No site em questão, encontra-se categorias de pratos como _café da manhã_, _almoço_, _jantar_, _drinks_ e, naturalmente, o objeto de interesse do trabalho, as _sobremesas_.
 
 Em seguida, foi feita a exclusão de linhas que possuíam valores faltantes. Por fim, houve a retirada de valores absurdos (descrita mais detalhadamente abaixo). O conjunto final possui 15706 observações e 7 variáveis.
 
@@ -43,41 +46,154 @@ head(dsel); dim(dsel)
 
 ```
 
+Observando o percentil 99 tem-se que 99% dos valores são menores ou iguais a 3257 kcal. Tomarei como limite das observações de caloria, pois é improvável/inviável que receitas ultrapassem de maneira tão acentuada esse valor; receitas com milhões de kcal são claramente erros nessa base de dados. Foi feito um tratamento semelhante para a variável _sódio_.
+
 ```{r}
-#plot(gordura)
+#quantile(dsel$calorias, seq(0, 1, .01))
 
-#boxplot(nota~sobremesa, col='navyblue')
+dsel <- subset(dsel, dsel$calorias <= quantile(dsel$calorias, .99)[[1]] & 
+                 dsel$sodio <= quantile(dsel$sodio, .98)[[1]])
 
-quantile(dsel$calorias, seq(0, 1, .01))
+dsel <- dsel %>% mutate(status = case_when(sobremesa == 1 ~ "positivo",
+                          sobremesa == 0 ~ "negativo"))
 
 ```
 
-Observando o percentil 99 tem-se que 99% dos valores são menores ou iguais a 3257 kcal. Tomarei como limite das observações de caloria, pois é improvável/inviável que receitas ultrapassem de maneira tão acentuada esse valor; receitas com milhões de kcal são claramente erros nessa base de dados.
+## Análise descritiva
+
+Como visto no gráfico 'b', a variável nota não aparenta ser influenciada pelo tipo da receita.
+
+```{r, fig.cap="Comportamento das receitas em relação à caloria"}
+g_cal = ggplot(data = dsel, aes(x = calorias, y = status)) +
+  geom_jitter(aes(col=factor(status)), alpha = .2) +
+  labs(title = "a", color = "Sobremesa",
+       y = "É sobremesa?",
+       x = "Calorias (kcal)") +
+  scale_color_manual(values = c("navy", "red"),
+                     labels = c("negativo", "positivo")) +
+  ggthemes::theme_tufte() +
+  theme(legend.position = 'none')
+
+#{r, fig.cap="Comportamento das receitas em relação à nota"}
+g_n = ggplot(data = dsel, aes(x = nota, y = status)) +
+  geom_jitter(aes(col=factor(status)), alpha = .2) +
+  labs(title = "b", color = "Sobremesa",
+       y = "",
+       x = "Nota") +
+  scale_color_manual(values = c("navy", "red"),
+                     labels = c("negativo", "positivo")) +
+  scale_x_continuous(breaks = seq(0, 5, .5)) +
+  ggthemes::theme_tufte() +
+  theme(legend.position = 'none')
+
+#{r, fig.cap="Comportamento das receitas em relação ao sódio"}
+g_s = ggplot(data = dsel, aes(x = sodio, y = status)) +
+  geom_jitter(aes(col=factor(status)), alpha = .2) +
+  labs(title = "c", color = "Sobremesa",
+       y = "",
+       x = "Sódio (mg)") +
+  scale_color_manual(values = c("navy", "red"),
+                     labels = c("negativo", "positivo")) +
+    ggthemes::theme_tufte() +
+  theme(legend.position = 'none')
+
+#{r, fig.cap="Comportamento das receitas em relação à gordura"}
+g_g = ggplot(data = dsel, aes(x = gordura, y = status)) +
+  geom_jitter(aes(col=factor(status)), alpha = .2) +
+  labs(title = "d", color = "Sobremesa",
+       y = "",
+       x = "Gordura (g)") +
+  scale_color_manual(values = c("navy", "red"),
+                     labels = c("negativo", "positivo")) +
+  #ggthemes::theme_few()+
+  ggthemes::theme_tufte() +
+  theme(legend.position = 'none')
+
+```
 
 ```{r}
-dsel <- subset(dsel, dsel$calorias <= quantile(dsel$calorias, .99)[[1]])
+#library(patchwork)
 
+g_cal + g_n + g_s + g_g
+
+```
+\newpage
+
+## Modelo base
+
+O modelo principal será analisado da seguinte maneira: o conjunto de dados selecionados será dividido em _conjunto_treino_ (70%) e _conjunto_teste_ (30%)
+
+
+```{r, warning=FALSE}
 set.seed(2024)
-dsel = dsel[sample(c(1:15706), 200),]
+df1_treino = dsel[sample(c(1:length(dsel[,1])), length(dsel[, 1])*.7), ]
+df1_teste = dsel[sample(c(1:length(dsel[, 1])), length(dsel[, 1])*.3), ]
 
-ggplot(dsel, aes(x=calorias)) + geom_histogram(binwidth = 200)
-
-```
-
-```{r}
-modelo = glm(sobremesa~calorias+proteina+gordura+sodio, family = binomial(),
-             data = dsel)
+modelo = glm(sobremesa~nota+calorias+proteina+gordura+sodio, family = binomial(),
+             data = df1_treino)
 
 summary(modelo)
 
-#plot(modelo$residuals)
+preditos = predict(object = modelo, newdata = df1_teste, type = "response")
 
-hnp::hnp(modelo, print.on = T)
+df1_teste$prob_pred <- preditos
+
+```
+
+```{r}
+curva_roc = pROC::roc(df1_teste$sobremesa, df1_teste$prob_pred)
+plot(curva_roc)
+#pROC::auc(curva_roc)
+optimal_coords <- pROC::coords(curva_roc, "best", ret = c("threshold",
+                                                          "sensitivity",
+                                                          "specificity"))
+
+points(optimal_coords[3], optimal_coords[2], col = "red", pch = 19, cex = 1.5)
+
+# Display optimal coordinates
+#optimal_coords$threshold
+```
+
+
+```{r Resultados}
+# tidymodels e tidyverse
+df1_teste$predito <- ifelse(df1_teste$prob_pred < optimal_coords$threshold, 0, 1)
+
+table(df1_teste$sobremesa)
+table(df1_teste$predito)
+
+conf.m = caret::confusionMatrix(data = as.factor(df1_teste$predito),
+                         reference = as.factor(df1_teste$sobremesa))
+
+#sensibilidade = conf.m$byClass[[1]]
+#acuracia = conf.m$overall[[1]]
+
+ggplot(df, aes(Prediction, Reference, fill=Freq)) +
+  geom_tile() +
+  ggthemes::theme_tufte() +
+  theme(legend.position = 'none') +
+  geom_text(aes(label = Freq)) + # write the values
+  scale_fill_gradient2(low = muted("white"), high = muted("midnightblue")) +
+  labs(title = "Matriz de confusão", x="Predito", y = "Real")
 
 ```
 
 
-```{r}
+## Análise de diagnóstico dos resíduos
+
+```{r, warning=FALSE}
+#plot(modelo$residuals)
+
+env = hnp::hnp(modelo, print.on = T)
+
+plot(env)
+
+env$out
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
 # Assumindo que 'var1' é uma variável numérica que pode ser interpretada como tempo
 
 ggplot(dsel,
@@ -107,11 +223,12 @@ g1
 ```
 
 
+## Parte final (teste com outros tamanhos amostrais)
 
-```{r}
-glm(sobremesa~calorias+proteina+gordura+sodio, family = binomial())
-```
+Para esse conjunto de dados, realmente é necessário utilizar todos dados selecionados para ajustar um modelo satisfatório?
 
+Tabulação das seguintes métricas para o mesmo modelo (mesmas variáveis explicativas): acurácia, precisão, sensibilidade, AIC, BIC.
+Deve conter qual o modelo final; qual o tamanho amostral do conjunto de treino e do de teste (proporção 70-30 sempre).
 
 ## Referências
 

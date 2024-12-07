@@ -112,7 +112,7 @@ g_g = ggplot(data = dsel, aes(x = gordura, y = status)) +
 ```
 
 ```{r}
-#library(patchwork)
+library(patchwork)
 
 g_cal + g_n + g_s + g_g
 
@@ -124,13 +124,13 @@ g_cal + g_n + g_s + g_g
 O modelo principal será analisado da seguinte maneira: o conjunto de dados selecionados será dividido em _conjunto_treino_ (70%) e _conjunto_teste_ (30%)
 
 
-```{r, warning=FALSE}
+```{r LOGIT, warning=FALSE}
 set.seed(2024)
 df1_treino = dsel[sample(c(1:length(dsel[,1])), length(dsel[, 1])*.7), ]
 df1_teste = dsel[sample(c(1:length(dsel[, 1])), length(dsel[, 1])*.3), ]
-
-modelo = glm(sobremesa~nota+calorias+proteina+gordura+sodio, family = binomial(),
-             data = df1_treino)
+# f.lig. canonica
+modelo = glm(sobremesa ~ nota + calorias + proteina + gordura + sodio,
+             family = binomial(link = 'logit'), data = df1_treino)
 
 summary(modelo)
 
@@ -139,6 +139,38 @@ preditos = predict(object = modelo, newdata = df1_teste, type = "response")
 df1_teste$prob_pred <- preditos
 
 ```
+
+##### Teste com as outras funções de ligação.
+
+```{r PROBIT}
+modelo2 = glm(sobremesa ~ nota + calorias + proteina + gordura + sodio,
+             family = binomial(link = 'probit'),
+             data = df1_treino)
+
+summary(modelo2)
+
+```
+
+
+```{r LOGLOG}
+# O algoritmo não convergiu! 
+modelo3 = glm(sobremesa ~ nota + calorias + proteina + gordura + sodio,
+             family = binomial(link = 'cloglog'),
+             data = df1_treino)
+
+summary(modelo3)
+
+```
+
+```{r, warning=FALSE}
+#hnp::hnp(modelo)
+par(bg='gray')
+hnp::hnp(modelo2, print.on = T, main="modelo 2")
+
+hnp::hnp(modelo3, print.on = T, main="modelo 3")
+
+```
+
 
 ```{r}
 curva_roc = pROC::roc(df1_teste$sobremesa, df1_teste$prob_pred)
@@ -170,30 +202,62 @@ conf.m = caret::confusionMatrix(data = as.factor(df1_teste$predito),
 
 ggplot(df, aes(Prediction, Reference, fill=Freq)) +
   geom_tile() +
+  geom_tile(colour = 'black') +
   ggthemes::theme_tufte() +
   theme(legend.position = 'none') +
   geom_text(aes(label = Freq)) + # write the values
-  scale_fill_gradient2(low = muted("white"), high = muted("midnightblue")) +
+  scale_fill_gradient2(low = scales::muted("white"),
+                       high = scales::muted("midnightblue")) +
   labs(title = "Matriz de confusão", x="Predito", y = "Real")
 
 ```
 
+Destacar no texto qual tipo de erro mais ocorreu!
 
 ## Análise de diagnóstico dos resíduos
 
 ```{r, warning=FALSE}
-#plot(modelo$residuals)
-
 env = hnp::hnp(modelo, print.on = T)
 
 plot(env)
 
 env$out
 
+env$total
+
+```
+
+```{r}
+par(bg='gray')
+par(mfrow=c(2,2))
+
+plot(modelo)
+
+Box.test(modelo$residuals, type="Ljung")
+
+```
+
+```{r}
+resid_pearson = residuals(modelo, "pearson")
+resid_padron = rstandard(modelo)
+alavanca = hatvalues(modelo)
+
+par(bg='gray')
+par(mfrow=c(1,2))
+
+plot(resid_pearson, ylab="Resíduo de Pearson", xlab = "", ylim=c(-1,1)*8)
+abline(h=0, col='red')
+
+plot(resid_padron, ylab="Resíduos padronizados", xlab = "")
+abline(h=c(-2,2), col='red')
+
+plot(alavanca, ylab="Alavancagem", xlab="")
+abline(h = (2*ncol(df1_teste)/length(df1_teste$sobremesa)), col="red")
+
 ```
 
 
-```{r eval=FALSE, include=FALSE}
+```{r IGNORAR, eval=FALSE, include=FALSE}
 # Assumindo que 'var1' é uma variável numérica que pode ser interpretada como tempo
 
 ggplot(dsel,

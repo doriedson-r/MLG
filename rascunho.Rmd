@@ -18,6 +18,9 @@ require(patchwork)
 
 source('arquivo1.R')
 
+library(lemon)
+knit_print.data.frame <- lemon_print
+
 ```
 
 ## Os dados
@@ -51,11 +54,14 @@ Observando o percentil 99 tem-se que 99% dos valores são menores ou iguais a 32
 ```{r}
 #quantile(dsel$calorias, seq(0, 1, .01))
 
+# Retirando valores absurdos de calorias e sódio
 dsel <- subset(dsel, dsel$calorias <= quantile(dsel$calorias, .99)[[1]] & 
                  dsel$sodio <= quantile(dsel$sodio, .98)[[1]])
 
 dsel <- dsel %>% mutate(status = case_when(sobremesa == 1 ~ "positivo",
                           sobremesa == 0 ~ "negativo"))
+
+sum(dsel$sobremesa)/length(dsel$sobremesa)
 
 ```
 
@@ -126,8 +132,17 @@ O modelo principal será analisado da seguinte maneira: o conjunto de dados sele
 
 ```{r LOGIT, warning=FALSE}
 set.seed(2024)
-df1_treino = dsel[sample(c(1:length(dsel[,1])), length(dsel[, 1])*.7), ]
-df1_teste = dsel[sample(c(1:length(dsel[, 1])), length(dsel[, 1])*.3), ]
+# observações sorteadas (reordenadas)
+aux1 = sample(c(1:length(dsel[, 1])))
+
+df1_treino = dsel[aux1[1:(length(aux1)*.7)], ]
+df1_teste = dsel[aux1[(length(aux1)*.7):length(aux1)], ]
+
+# Verificando quantos nomes se repetem
+#cont = 0 
+#for(x in df1_teste$titulo){
+#  if(x %in% df1_treino$titulo){cont = cont + 1}}
+
 # f.lig. canonica
 modelo = glm(sobremesa ~ nota + calorias + proteina + gordura + sodio,
              family = binomial(link = 'logit'), data = df1_treino)
@@ -139,6 +154,12 @@ preditos = predict(object = modelo, newdata = df1_teste, type = "response")
 df1_teste$prob_pred <- preditos
 
 ```
+
+```{r Precisa retirar variaveis}
+MASS::stepAIC(modelo)
+
+```
+
 
 ##### Teste com as outras funções de ligação.
 
@@ -183,22 +204,52 @@ optimal_coords <- pROC::coords(curva_roc, "best", ret = c("threshold",
 points(optimal_coords[3], optimal_coords[2], col = "red", pch = 19, cex = 1.5)
 
 # Display optimal coordinates
-#optimal_coords$threshold
+optimal_coords$threshold
+```
+
+```{r}
+confundir =  function(referencia, predito){
+  # Os dois vetores binários precisam ter o mesmo tamanho, pois serão comparados
+  
+  df = data.frame('referencia'=referencia, 'predito'=predito)
+  
+  head(df)
+  
+  TP = dim(subset(df, df$referencia == 1 & df$predito == 1))[1]
+  TN = dim(subset(df, df$referencia == 0 & df$predito == 0))[1]
+  FP = dim(subset(df, df$referencia == 0 & df$predito == 1))[1]
+  FN = dim(subset(df, df$referencia == 1 & df$predito == 0))[1]
+  
+  sens = TP/(TP + FN)
+  espec = TN / (TN + FP)
+  acuracia = (TP + TN) / (TP + TN + FP + FN)
+  interesse = (TP + FN) / (TP + TN + FP + FN)
+  precisao = TP / (TP + FP)
+
+
+  dffinal = data.frame('Evento de interesse' = interesse,
+                       'Sensibilidade' = sens, 'Especificidade'= espec,
+                       'Acuracidade' = acuracia, 'Precisao' = precisao
+                       )
+  return(dffinal)
+}
+
+#x=confundir(df1_teste$sobremesa, df1_teste$predito)
 ```
 
 
-```{r Resultados}
+```{r Resultados, echo=TRUE}
 # tidymodels e tidyverse
 df1_teste$predito <- ifelse(df1_teste$prob_pred < optimal_coords$threshold, 0, 1)
 
 table(df1_teste$sobremesa)
 table(df1_teste$predito)
 
+
+# Para o gráfico apenas
 conf.m = caret::confusionMatrix(data = as.factor(df1_teste$predito),
                          reference = as.factor(df1_teste$sobremesa))
-
-#sensibilidade = conf.m$byClass[[1]]
-#acuracia = conf.m$overall[[1]]
+df = as.data.frame(conf.m$table)
 
 ggplot(df, aes(Prediction, Reference, fill=Freq)) +
   geom_tile() +
@@ -208,22 +259,31 @@ ggplot(df, aes(Prediction, Reference, fill=Freq)) +
   geom_text(aes(label = Freq)) + # write the values
   scale_fill_gradient2(low = scales::muted("white"),
                        high = scales::muted("midnightblue")) +
-  labs(title = "Matriz de confusão", x="Predito", y = "Real")
+  labs(title = "Matriz de confusao", x="Predito", y = "Real")
+```
+
+
+```{r Resultados2, echo=TRUE}
+confundir(df1_teste$sobremesa, df1_teste$predito)
 
 ```
 
 Destacar no texto qual tipo de erro mais ocorreu!
+
+```{r, render=lemon_print}
+#as.data.frame(conf.m$overall)
+#as.data.frame(conf.m$byClass)
+
+```
 
 ## Análise de diagnóstico dos resíduos
 
 ```{r, warning=FALSE}
 env = hnp::hnp(modelo, print.on = T)
 
-plot(env)
+#plot(env)
 
-env$out
-
-env$total
+env$out/env$total
 
 ```
 
@@ -232,6 +292,9 @@ par(bg='gray')
 par(mfrow=c(2,2))
 
 plot(modelo)
+
+cat("\nOs outliers foram:\n")
+modelo[["data"]][c(4513, 9610, 8554), ]
 
 Box.test(modelo$residuals, type="Ljung")
 
@@ -251,41 +314,11 @@ abline(h=0, col='red')
 plot(resid_padron, ylab="Resíduos padronizados", xlab = "")
 abline(h=c(-2,2), col='red')
 
+par(mfrow=c(1,1))
 plot(alavanca, ylab="Alavancagem", xlab="")
 abline(h = (2*ncol(df1_teste)/length(df1_teste$sobremesa)), col="red")
 
 ```
-
-
-```{r IGNORAR, eval=FALSE, include=FALSE}
-# Assumindo que 'var1' é uma variável numérica que pode ser interpretada como tempo
-
-ggplot(dsel,
-       aes(x = calorias, y = sobremesa))+#, color = Sex, linetype = factor(Pclass))) +
-  geom_jitter(aes(y = sobremesa), height = 0.02, alpha = 0.3) +
-  geom_line(data = predict_data, aes(y = predicted_prob), size = 1) +
-  labs(title = "Curvas de Probabilidade Preditiva de Sobrevivência",
-       x = "Idade",
-       y = "Probabilidade de Sobrevivência",
-       color = "Sexo",
-       linetype = "Classe (Pclass)") +
-  scale_color_manual(values = c("blue", "red")) +
-  theme_minimal()
-
-g1 = ggplot(dsel, aes(y = sodio, x = seq(1:15706), color = sobremesa)) +
-  geom_line() +
-  #theme_dark() +
-  labs(x = "Var1", y = "Resposta",
-       title = "Evolução da Resposta em Relação a Var1")
-
-g1 
-
-#g1 + scale_color_manual(breaks=c(0:1), palette = "YlGn")#values=c("red", "green"))
-
-#g1 + scale_fill_brewer(palette = "YlGn")
-
-```
-
 
 ## Parte final (teste com outros tamanhos amostrais)
 
@@ -293,6 +326,180 @@ Para esse conjunto de dados, realmente é necessário utilizar todos dados selec
 
 Tabulação das seguintes métricas para o mesmo modelo (mesmas variáveis explicativas): acurácia, precisão, sensibilidade, AIC, BIC.
 Deve conter qual o modelo final; qual o tamanho amostral do conjunto de treino e do de teste (proporção 70-30 sempre).
+
+```{r, warning=FALSE}
+tabelado = function(vetor)
+{
+  df = data.frame(tamanho = 0,
+                    evento.interesse = 0,
+                    acuracidade = 0,
+                    sensibilidade = 0,
+                    especif = 0,
+                    hnp.fora = 0)
+  
+  for(N in vetor){
+    
+    treino = dsel[aux1[1:round(N*.7)], ]
+    teste = dsel[aux1[round(N*.7+1):N], ]
+    cat(dim(treino)[1], dim(teste)[1])
+    modelo = glm(sobremesa ~ nota + calorias + proteina + gordura + sodio,
+               family = binomial(link = 'logit'), data = treino)
+    
+    # predição
+    preditos = predict(object = modelo, newdata = teste, type = "response")
+    teste$prob_pred <- preditos
+    
+    # envelope simulado
+    set.seed(2024)
+    env = hnp::hnp(modelo, print.on = T, plot.sim = F)
+    
+    # curva ROC
+    curva_roc = pROC::roc(teste$sobremesa, teste$prob_pred)
+    optimal_coords <- pROC::coords(curva_roc, "best", ret = c("threshold",
+                                                            "sensitivity",
+                                                            "specificity"))
+  
+    # matriz de confusão
+    teste$predito <- ifelse(teste$prob_pred < optimal_coords$threshold, 0, 1)
+  
+    conf.m = caret::confusionMatrix(data = as.factor(teste$predito),
+                           reference = as.factor(teste$sobremesa))
+
+    # tabela
+    novalinha = data.frame(tamanho = N,
+                    evento.interesse = sum(teste$sobremesa)/length(teste$sobremesa),
+                    acuracidade = conf.m$overall[[1]],
+                    sensibilidade = conf.m$byClass[[1]],
+                    especif = conf.m$byClass[[2]],
+                    hnp.fora = env$out/env$total)
+    
+    df <- rbind(df, novalinha)
+  }
+  df <- df[-1, ]
+  colnames(df) <- c("Tamanho", "Evento de interesse", "Acuracidade",
+                    "Sensibilidade", "Especificidade", "Pontos fora (envelope)")
+  
+  return(df)
+}
+
+```
+
+
+```{r}
+tabelado_mult = function(vetor, iter)
+{
+  df = data.frame(tamanho = 0,
+                    evento.interesse = 0,
+                    acuracidade = 0,
+                    sensibilidade = 0,
+                    especif = 0,
+                    precisao = 0,
+                    hnp.fora = 0)
+  
+  set.seed(2024)
+  
+  for(N in vetor){
+    resultados <- as.data.frame((matrix(NA, ncol=7, byrow=T)))
+    for(i in 1:iter){
+      
+      # Para cada iteração um novo sorteio!
+      aux1 = sample(c(1:length(dsel[, 1])))
+  
+      treino = dsel[aux1[1:round(N*.7)], ]
+      teste = dsel[aux1[round(N*.7+1):N], ]
+      #cat(treino$titulo[1:5], teste$titulo[1:5], "\n")
+      modelo = glm(sobremesa ~ nota + calorias + proteina + gordura + sodio,
+                 family = binomial(link = 'logit'), data = treino)
+      
+      # predição
+      preditos = predict(object = modelo, newdata = teste, type = "response")
+      teste$prob_pred <- preditos
+      
+      # envelope simulado
+      env = hnp::hnp(modelo, print.on = T, plot.sim = F)
+      
+      # curva ROC
+      curva_roc = pROC::roc(teste$sobremesa, teste$prob_pred)
+      optimal_coords <- pROC::coords(curva_roc, "best", ret = c("threshold",
+                                                              "sensitivity",
+                                                              "specificity"))
+    
+      # matriz de confusão
+      teste$predito <- ifelse(teste$prob_pred < optimal_coords$threshold, 0, 1)
+    
+      x = confundir(teste$sobremesa, teste$predito)
+  
+      # tabela
+      novalinha = data.frame(V1 = N,
+                      V2 = x$Evento.de.interesse,
+                      V3 = x$Acuracidade,
+                      V4 = x$Sensibilidade,
+                      V5 = x$Especificidade,
+                      V6 = x$Precisao,                      
+                      V7 = env$out/env$total)
+  
+    resultados <- rbind(resultados, novalinha)
+    }
+    
+    resultados <- na.omit(resultados)
+
+    df = add_row(df, tamanho = mean(resultados$V1),
+                    evento.interesse = mean(resultados$V2),
+                    acuracidade = mean(resultados$V3),
+                    sensibilidade = mean(resultados$V4),
+                    especif = mean(resultados$V5),
+                    precisao = mean(resultados$V6),
+                    hnp.fora = mean(resultados$V7))
+    }
+    
+  print(resultados)
+  
+  df <- df[-1, ]
+  
+  colnames(df) <- c("Tamanho", "Evento de interesse", "Acuracidade",
+                    "Sensibilidade", "Especificidade", "Precisão",
+                    "Pontos fora (envelope)")
+  
+  return(df)
+  }
+  
+
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+N = c(200, 400, 800, 2000, 4000, 10000)
+resp = tabelado_mult(N, 100)
+
+```
+
+\newpage
+
+```{r, render=lemon_print}
+
+#write.csv(resp, file=saida)
+
+resp = read.csv(saida)
+resp
+
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+#tabelado(N)
+
+```
+
+```{r}
+pb <- progress::progress_bar$new(
+format = " calculando [:bar] :percent  tempo estimado: :eta",
+total = 100, clear = FALSE, width= 60)
+for (i in 1:100) {
+pb$tick()
+Sys.sleep(1 / 100)
+}
+
+```
+
 
 ## Referências
 

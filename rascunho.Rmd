@@ -72,8 +72,8 @@ Como visto no gráfico 'b', a variável nota não aparenta ser influenciada pelo
 ```{r, fig.cap="Comportamento das receitas em relação à caloria"}
 g_cal = ggplot(data = dsel, aes(x = calorias, y = status)) +
   geom_jitter(aes(col=factor(status)), alpha = .2) +
-  labs(title = "a", color = "Sobremesa",
-       y = "É sobremesa?",
+  labs(title = "b", color = "Sobremesa",
+       y = "",
        x = "Calorias (kcal)") +
   scale_color_manual(values = c("navy", "red"),
                      labels = c("negativo", "positivo")) +
@@ -83,7 +83,7 @@ g_cal = ggplot(data = dsel, aes(x = calorias, y = status)) +
 #{r, fig.cap="Comportamento das receitas em relação à nota"}
 g_n = ggplot(data = dsel, aes(x = nota, y = status)) +
   geom_jitter(aes(col=factor(status)), alpha = .2) +
-  labs(title = "b", color = "Sobremesa",
+  labs(title = "c", color = "Sobremesa",
        y = "",
        x = "Nota") +
   scale_color_manual(values = c("navy", "red"),
@@ -95,8 +95,8 @@ g_n = ggplot(data = dsel, aes(x = nota, y = status)) +
 #{r, fig.cap="Comportamento das receitas em relação ao sódio"}
 g_s = ggplot(data = dsel, aes(x = sodio, y = status)) +
   geom_jitter(aes(col=factor(status)), alpha = .2) +
-  labs(title = "c", color = "Sobremesa",
-       y = "",
+  labs(title = "a", color = "Sobremesa",
+       y = "É sobremesa?",
        x = "Sódio (mg)") +
   scale_color_manual(values = c("navy", "red"),
                      labels = c("negativo", "positivo")) +
@@ -106,9 +106,20 @@ g_s = ggplot(data = dsel, aes(x = sodio, y = status)) +
 #{r, fig.cap="Comportamento das receitas em relação à gordura"}
 g_g = ggplot(data = dsel, aes(x = gordura, y = status)) +
   geom_jitter(aes(col=factor(status)), alpha = .2) +
-  labs(title = "d", color = "Sobremesa",
+  labs(title = "e", color = "Sobremesa",
        y = "",
        x = "Gordura (g)") +
+  scale_color_manual(values = c("navy", "red"),
+                     labels = c("negativo", "positivo")) +
+  #ggthemes::theme_few()+
+  ggthemes::theme_tufte() +
+  theme(legend.position = 'none')
+
+g_p = ggplot(data = dsel, aes(x = proteina, y = status)) +
+  geom_jitter(aes(col=factor(status)), alpha = .2) +
+  labs(title = "d", color = "Sobremesa",
+       y = "",
+       x = "Proteína (g)") +
   scale_color_manual(values = c("navy", "red"),
                      labels = c("negativo", "positivo")) +
   #ggthemes::theme_few()+
@@ -120,9 +131,15 @@ g_g = ggplot(data = dsel, aes(x = gordura, y = status)) +
 ```{r}
 library(patchwork)
 
-g_cal + g_n + g_s + g_g
+g_s / (g_cal + g_n + g_p + g_g)
 
 ```
+
+```{r}
+#g_p
+```
+
+
 \newpage
 
 ## Modelo base
@@ -279,16 +296,20 @@ Destacar no texto qual tipo de erro mais ocorreu!
 ## Análise de diagnóstico dos resíduos
 
 ```{r, warning=FALSE}
-env = hnp::hnp(modelo, print.on = T)
+env = hnp::hnp(modelo, print.on = T, plot.sim = F)
 
-#plot(env)
+total = paste0("Total de pontos: ", env$total,
+            "\nPontos fora do envelope: ", env$out,
+            " (", round(env$out/env$total, 4)*100, "%)")
+plot(env, xlab="Quantis teóricos", ylab="Resíduos")
+text(x=1, y=4.3, total)
 
-env$out/env$total
+
 
 ```
 
 ```{r}
-par(bg='gray')
+#par(bg='gray')
 par(mfrow=c(2,2))
 
 plot(modelo)
@@ -296,7 +317,9 @@ plot(modelo)
 cat("\nOs outliers foram:\n")
 modelo[["data"]][c(4513, 9610, 8554), ]
 
-Box.test(modelo$residuals, type="Ljung")
+#Box.test(modelo$residuals, type="Ljung")
+
+car::durbinWatsonTest(modelo)
 
 ```
 
@@ -305,7 +328,7 @@ resid_pearson = residuals(modelo, "pearson")
 resid_padron = rstandard(modelo)
 alavanca = hatvalues(modelo)
 
-par(bg='gray')
+#par(bg='gray')
 par(mfrow=c(1,2))
 
 plot(resid_pearson, ylab="Resíduo de Pearson", xlab = "", ylim=c(-1,1)*8)
@@ -479,6 +502,14 @@ resp = tabelado_mult(N, 100)
 #write.csv(resp, file=saida)
 
 resp = read.csv(saida)
+
+resp = resp[, -1]
+
+resp[, 2:7] <- round(resp[, 2:7], 6)*100
+
+colnames(resp) <- c("N", "Evento (Y=1)", "Acurac.",
+                    "Sens.", "Espec.", "Prec.", "Fora do env.")
+
 resp
 
 ```
